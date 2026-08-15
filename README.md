@@ -1,70 +1,118 @@
 # Stride
 
-A generic **habits-in, outcomes-out** tracker: log the things you deliberately
-do, record the results you observe, and over time surface whether your
-deliberate actions correlate with your observed outcomes.
+A **personal reasoning agent over a self-logged life.** You log the things you
+deliberately do or control (**inputs**) and the things you observe
+(**outcomes**). Each night an agent reasons over rich *descriptions* +
+*statistical sketches* of those entities — using its own world-knowledge, not a
+hardwired correlation engine — and returns plain-language insight plus
+**proposals for what to track next.** Over time the schema and the agent's
+attention **morph** to fit the person.
 
-Health is the **first seed domain** (habits like breathing/planning/hydration,
-outcomes like sleep and weight), but the data model is domain-neutral by design
-— "health" is seed data, not schema.
+Health is the **first seed domain** (inputs like breathing/stretches/walking,
+sleep, meals, water; outcomes like weight), but the data model is
+domain-neutral by design — "health" is seed data, not schema.
 
-## Core idea
+## The thesis (what makes this not a habit tracker)
 
-- **Habits** = things you deliberately do (user-defined, typed, time-series).
-- **Outcomes** = things you observe (user-defined, typed, time-series).
-- **Insight** = correlation between the two, computed over accumulated logs.
+1. **Reasoning over computation.** We do *not* pre-compute pairwise
+   correlations and ask the LLM to narrate them. We hand the model each
+   entity's description + a statistical sketch and ask it to reason about
+   cross-relationships from its understanding of the world and of these
+   specific numbers — grounding every claim in the sketch, labelling
+   correlation/hypothesis, never asserting causation.
+2. **The suggest-and-track loop.** The agent proposes *new* things to log and
+   evolves what the person tracks through an interactive chat. **This loop is
+   the IP** — it's where the product stops being a tracker and becomes an agent.
+3. **It morphs.** What's hardcoded today (weight, sleep, three checklist inputs)
+   is seed data; the schema is designed to become user- and eventually
+   agent-editable.
 
-The value is not any single metric — it is the observe-and-correlate engine.
+## The product principle — an agent constraint, not just UI copy
+
+**Observe and reflect; do not enforce or pressure.** Body/outcome metrics are
+logged neutrally and shown descriptively, never as targets to beat. Because the
+agent can *propose new metrics*, observe-don't-pressure lives in the agent's
+operating constraints: it must never suggest restriction-gamification (calorie
+counting, weigh-in streaks, guilt framing). Streaks, if any, belong on
+behavioral habits only.
+
+## Core model
+
+- **Inputs** = things deliberately done *or* logged facts you control
+  (user-defined, typed, time-series). "input" was chosen over "habit"/"action":
+  last-meal time is neither a habit nor an action, but it is an input you track.
+- **Outcomes** = things observed (user-defined, typed, time-series, including
+  **image-typed** outcomes like a daily photo). Today only Weight and Mood.
+- **Insight** = the agent's nightly reasoning over both, plus proposals for what
+  to track next.
+
+Every log carries two timestamps: `occurred_at` (when it happened) and
+`logged_at` (server write time) — enabling backfill of past days. `value` is the
+single field SQL sketches over; `attributes` (JSON) is the extensibility sidecar.
+`description` is first-class product data — the agent reasons over it.
 
 ## Architecture (locked decisions)
 
 | Concern | Decision | Why |
 |---|---|---|
-| Frontend | Static React (Vite), served from a CDN | UI is a private authenticated app-shell; no SSR need yet |
+| Frontend | Static React (Vite) → CDN | Private authenticated app-shell; no SSR need |
+| Frontend routing | Vite + **TanStack Router** (no Start/server layer yet) | File-based routing, browser-only; upgrade to Start only on a real SSR trigger |
 | Backend | Python + FastAPI | Async-native, schema-validated, LLM/ML-ecosystem-first |
-| Database | Postgres, all rows `user_id`-scoped | Relational, time-series-friendly, standard multi-tenant |
-| Auth | Google sign-in → backend verifies → backend-issued session JWT | Identity via Google; DB guarded by our own token, backend-only |
-| Voice→text | Server-side Whisper (hosted first), later swappable | Cross-device consistency; iOS Safari web speech unreliable |
+| Database | Postgres, all rows `user_id`-scoped | Relational + time-series + `pgvector` later |
+| Auth | Google → backend verifies → backend-issued session JWT | Backend is the confidential OAuth client; DB guarded by our token |
+| Voice→text | Server-side Whisper (hosted first), swappable | iOS Safari web speech unreliable; uniform server-side transcription |
 | LLM calls | Backend-side only, off the write path | Keys/prompts stay server-side; async |
-| Compute vs. interpret | Aggregation in SQL; LLM interprets, never calculates | Hard boundary keeps analytics deterministic |
-| Raw capture | Stored separately from derived structured logs, linked | Auditability + reprocessing + confirm-before-commit |
+| Sketches vs. reasoning | SQL produces **statistical sketches**; LLM **reasons** over sketches + descriptions | Scoped boundary: no LLM arithmetic on raw rows; reasoning is the LLM's job |
+| Raw capture | Stored separately from derived logs, linked | Audit, reprocess, confirm-before-commit |
+| Repo | Monorepo: `apps/` + `packages/` + `backend/` | iOS is a roadmap certainty → multiple peer clients |
+| License / visibility | MIT, public (revisit before the agent loop is real) | Nothing novel yet; the suggest-and-track loop is the part worth protecting |
+
+> **The sketches-vs-reasoning boundary** is a deliberate scoping of the older
+> "compute-in-SQL, LLM-never-calculates" rule. SQL still produces the numbers so
+> the model can't fabricate them; the LLM now does the cross-entity
+> *reasoning*, but must ground and label every claim.
 
 ## On the horizon (room left, not built)
 
-- **iOS app (React Native)** — the *primary* client long-term; web is the
-  showcase. Chosen RN over native Swift for code/type reuse with web.
-- **RAG over user docs** — object storage for raw files + `pgvector` in the
-  same Postgres; `user_id` scoping extends to documents.
-- **Batch + interactive LLM** — batch (Celery/RQ) for pre-computed insights,
-  interactive for ad-hoc questions. Keep LLM/retrieval as trigger-agnostic
-  service functions so either caller is additive.
-- **Bedrock AgentCore** — once genuinely agentic (orchestration + RAG). Keep
-  AWS SDKs out of core logic so adoption is an adapter, not a rewrite.
+- **iOS app (React Native)** — primary client long-term; web is the showcase.
+  RN over Swift for code/type reuse.
+- **The nightly reasoning agent + suggest-and-track loop** — the thesis. Batch
+  (nightly) and interactive (the chat) share trigger-agnostic service functions.
+- **RAG over the person's own history + reference docs** — `pgvector` in the
+  same Postgres first, behind a service interface; graduate to OpenSearch only
+  when retrieval sophistication justifies the ops weight.
+- **Image outcomes + vision** — daily photos via pre-signed S3 upload; vision
+  models reading them into the nightly pass.
+- **Bedrock AgentCore** — once genuinely agentic. Keep AWS SDKs out of core
+  logic so adoption is an adapter, not a rewrite.
 
 ## Repo map
 
 ```
 stride/
 ├── apps/
-│   └── web/              Vite React SPA — the showcase client
+│   └── web/              Vite + TanStack Router SPA — the showcase client
 ├── packages/
-│   └── api-contract/     OpenAPI spec — shared source of truth
+│   └── api-contract/     OpenAPI spec — shared source of truth (emitted by the backend)
 └── backend/              FastAPI service — spec-driven (GitHub Spec Kit)
 ```
 
-- **Why `apps/` + `packages/`** — not `frontend/`+`backend/`: iOS (React
-  Native) is a roadmap certainty, so the repo is structured for *multiple*
-  peer clients now. `apps/*` holds deployables; `packages/*` holds shared code
-  (starting with the API contract).
-- **Why the backend is separate** — it never moves; every client is just an
-  HTTP consumer of the same API. That seam is what keeps adding clients
-  additive.
+- **Why `apps/` + `packages/`** (not `frontend/`+`backend/`): iOS is a roadmap
+  certainty, so the repo is structured for *multiple* peer clients now. `apps/*`
+  holds deployables; `packages/*` holds shared code (starting with the contract).
+- **Why the backend is separate**: it never moves; every client is an HTTP
+  consumer of the same API. FastAPI auto-emits the OpenAPI, so the backend is
+  the *producer* of the contract and clients codegen from it.
 
 ## Development approach
 
 The **backend is built spec-driven** using [GitHub Spec Kit](https://github.com/github/spec-kit):
-specifications are the source of truth, code is the generated output. Spec Kit
-stops at implementation and does **not** verify code satisfies the spec — so
-acceptance tests are authored as part of each feature and enforced test-first.
+specifications are the source of truth, code is generated output, and the
+OpenAPI contract is emitted by the generated backend — not hand-authored. Spec
+Kit stops at implementation and does **not** verify code satisfies the spec — so
+acceptance tests are authored per feature and enforced **test-first**.
 
-See `backend/README.md` for how Spec Kit is rooted there.
+The frontend already runs against a mock (MSW) whose shape *is* the target
+contract, so when the generated backend emits that contract the UI needs no
+rework. See `apps/web/README.md` for the running client and `backend/README.md`
+for how Spec Kit is rooted there.
