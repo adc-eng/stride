@@ -39,6 +39,7 @@ export type Definition = {
 
 export type LogEntry = {
   id: string;
+  user_id: string; // from the verified token in the real backend
   definitionId: string;
   kind: EntityKind;
   value: number | boolean | string | null;
@@ -55,11 +56,19 @@ export type NewLog = {
 
 export type Insight = {
   id: string;
+  user_id: string;
   title: string;
   body: string;
   confidence: "low" | "medium" | "high";
   entityIds: string[];
+  // provenance — every generated insight is a stored row
+  generated_at: string; // ISO
+  range_from: string | null; // YYYY-MM-DD, null = all time
+  range_to: string | null;
+  generated_by: string; // LLM identifier, e.g. "claude-mock-v0"
 };
+
+export type GenerateParams = { from?: string | null; to?: string | null };
 
 const BASE = "/api";
 
@@ -114,13 +123,24 @@ export const api = {
   },
 
   // --- derived ---
-  listInsights: () => fetch(`${BASE}/insights`).then(json<Insight[]>),
+  // last N generated insights, newest first
+  listInsights: (limit = 10) =>
+    fetch(`${BASE}/insights?limit=${limit}`).then(json<Insight[]>),
 
-  ask: (question: string) =>
-    fetch(`${BASE}/insights/ask`, {
+  // run the (mocked) reasoning over logs in range, persist + return new rows
+  generateInsights: (params: GenerateParams = {}) =>
+    fetch(`${BASE}/insights/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify(params),
+    }).then(json<Insight[]>),
+
+  // interactive chat — range-scoped, NOT persisted as insights
+  chat: (question: string, params: GenerateParams = {}) =>
+    fetch(`${BASE}/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, ...params }),
     }).then(json<{ reply: string }>),
 
   // --- raw capture (voice/note proxy) ---

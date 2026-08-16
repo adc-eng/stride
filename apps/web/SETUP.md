@@ -1,7 +1,7 @@
 # Stride web — run it
 
-Vite + React + TS + TanStack Router + MSW + Tailwind v4 + Recharts. All fetches
-are client-side and mocked by MSW in dev.
+Vite + React + TS + TanStack Router + MSW + Tailwind v4. All fetches are
+client-side and mocked by MSW in dev.
 
 ## First run
 
@@ -30,16 +30,6 @@ Every log carries `occurred_at` (when it happened = page-date + a time) and
 compulsory for Sleep (worded "Bed time") and Last meal. Unset time defaults to
 now on today, noon when backfilling a past date.
 
-## Tabs
-
-- **Today (`/`)** — checklist, sleep, last meal, water, weight, one-tap mood,
-  disabled daily-vibe preview, and a "Notes for the day" card (record controls
-  by default, toggle to a textarea posting to `/captures`).
-- **Dashboard (`/dashboard`)** — 14-day Recharts trends; the mock returns raw
-  logs and the UI summarizes them client-side.
-- **Insights (`/insights`)** — nightly insight cards + an "Ask me" chat.
-- **Wall (`/wall`)** — bookmarks (local state; no API yet).
-
 ## Endpoints (mocked in `src/mocks/handlers.ts`)
 
 ```
@@ -52,13 +42,12 @@ DELETE /api/inputs/{id}/logs/{logId}     remove (checklist untoggle)
 GET    /api/outcomes/{id}/logs           one outcome's series
 POST   /api/outcomes/{id}/logs           append
 GET    /api/insights                     cross-entity nightly agent output (read-only)
-POST   /api/insights/ask                 mocked "Ask me" reply
 POST   /api/captures                     { raw_text, source } raw note/voice proxy
 ```
 
-State is in-memory with ~14 days of seeded history across all entities so the
-Dashboard has something to chart. A write then re-read reflects the change; a
-full page reload resets to seed. Intentional for a mock.
+State is in-memory (with a little seeded weight/sleep history so the Dashboard
+has something to chart). A write then re-read reflects the change; a full page
+reload resets to seed. Intentional for a mock.
 
 ## The seam
 

@@ -252,11 +252,17 @@ function BooleanCard({
       await onRemove("input", def.id, done.id);
     } else {
       // Breathing and stretches are binary in the UI but carry a fixed 5-min
-      // duration in the data model; walking's duration is left unset here.
-      const fixedFive = def.id === "breathing" || def.id === "stretches";
+      // duration; walking carries a default 20-min so it shows on the minutes
+      // chart (the Today checklist has no minutes input to capture a real value).
+      const fixed: Record<string, number> = {
+        breathing: 5,
+        stretches: 5,
+        walking: 20,
+      };
+      const dur = fixed[def.id];
       await onAppend("input", def.id, {
         value: true,
-        ...(fixedFive ? { attributes: { duration_min: 5 } } : {}),
+        ...(dur ? { attributes: { duration_min: dur } } : {}),
       });
     }
   };

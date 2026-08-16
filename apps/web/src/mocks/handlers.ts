@@ -114,6 +114,10 @@ const defsById = new Map<string, Definition>(
 /* ---------------- in-memory log store ---------------- */
 
 let logs: LogEntry[] = [];
+// In the real backend user_id comes from the verified token, never the body.
+// The mock is single-user; this constant stands in so every row carries the
+// field and the mock predicts the real contract's shape.
+const MOCK_USER_ID = "user_mock_1";
 let seq = 1;
 const nextId = (p: string) => `${p}_${seq++}`;
 
@@ -162,6 +166,7 @@ function seedSomeHistory() {
     // outcome: weight — slow gentle drift
     logs.push({
       id: nextId("log"),
+      user_id: MOCK_USER_ID,
       definitionId: "weight",
       kind: "outcome",
       value: round(181 - d * 0.05 + rnd(-0.6, 0.6)),
@@ -175,6 +180,7 @@ function seedSomeHistory() {
     const bedHour = [21, 22, 22, 23, 23, 0, 1][Math.floor(rnd(0, 7))];
     logs.push({
       id: nextId("log"),
+      user_id: MOCK_USER_ID,
       definitionId: "sleep",
       kind: "input",
       value: round(rnd(6, 8.5), 2),
@@ -188,6 +194,7 @@ function seedSomeHistory() {
     const mealHour = [18, 18, 19, 19, 20, 20, 21][Math.floor(rnd(0, 7))];
     logs.push({
       id: nextId("log"),
+      user_id: MOCK_USER_ID,
       definitionId: "last_meal",
       kind: "input",
       value: Math.round(rnd(1, 5)),
@@ -201,6 +208,7 @@ function seedSomeHistory() {
     for (let i = 0; i < adds; i++) {
       logs.push({
         id: nextId("log"),
+        user_id: MOCK_USER_ID,
         definitionId: "water",
         kind: "input",
         value: [4, 8, 16, 24][Math.floor(rnd(0, 4))],
@@ -214,6 +222,7 @@ function seedSomeHistory() {
     if (Math.random() < 0.75)
       logs.push({
         id: nextId("log"),
+        user_id: MOCK_USER_ID,
         definitionId: "breathing",
         kind: "input",
         value: true,
@@ -224,6 +233,7 @@ function seedSomeHistory() {
     if (Math.random() < 0.6)
       logs.push({
         id: nextId("log"),
+        user_id: MOCK_USER_ID,
         definitionId: "stretches",
         kind: "input",
         value: true,
@@ -234,6 +244,7 @@ function seedSomeHistory() {
     if (Math.random() < 0.7)
       logs.push({
         id: nextId("log"),
+        user_id: MOCK_USER_ID,
         definitionId: "walking",
         kind: "input",
         value: true,
@@ -250,6 +261,7 @@ function seedSomeHistory() {
     const VIBES = ["Energized", "Focused", "Calm", "Tired", "Stressed", "Meh"];
     logs.push({
       id: nextId("log"),
+      user_id: MOCK_USER_ID,
       definitionId: "daily_vibe",
       kind: "input",
       value: VIBES[Math.floor(rnd(0, VIBES.length))],
@@ -300,6 +312,7 @@ async function appendLog(
   const logged_at = new Date().toISOString();
   const entry: LogEntry = {
     id: nextId("log"),
+    user_id: MOCK_USER_ID,
     definitionId,
     kind,
     value: body?.value ?? null,
@@ -372,21 +385,49 @@ export const handlers = [
     return new HttpResponse(null, { status: 204 });
   }),
 
-  // derived, cross-entity (read-only in the mock)
-  http.get("/api/insights", () => HttpResponse.json(seedInsights)),
+  // derived, cross-entity — GET returns last N stored insights, newest first
+  http.get("/api/insights", ({ request }) => {
+    const url = new URL(request.url);
+    const limit = parseInt(url.searchParams.get("limit") ?? "10", 10);
+    const sorted = [...insightStore].sort((a, b) =>
+      b.generated_at.localeCompare(a.generated_at)
+    );
+    return HttpResponse.json(sorted.slice(0, limit));
+  }),
 
-  // Mocked "Ask me" — echoes a reasoned-sounding reply grounded in generic
-  // sketch language. No real LLM; this is a demo stand-in for the interactive
-  // reasoning path. Kept deliberately hedged: hypothesis, not causation.
-  http.post("/api/insights/ask", async ({ request }) => {
-    const { question } = (await request.json().catch(() => ({}))) as {
+  // POST /insights/generate { from?, to? } — runs the mocked reasoning over
+  // logs in range, PERSISTS the resulting rows, returns them. Range-aware and
+  // deliberately hedged: it counts the logs actually in range and, when data
+  // is thin, returns a single honest "nothing useful yet" insight rather than
+  // manufacturing correlations.
+  http.post("/api/insights/generate", async ({ request }) => {
+    const { from, to } = (await request.json().catch(() => ({}))) as {
+      from?: string | null;
+      to?: string | null;
+    };
+    const generated = generateInsights(from ?? null, to ?? null);
+    insightStore.push(...generated);
+    return HttpResponse.json(generated, { status: 201 });
+  }),
+
+  // interactive chat — range-scoped, NOT persisted. Reads the question + the
+  // range so the reply can acknowledge the data context.
+  http.post("/api/chat", async ({ request }) => {
+    const { question, from, to } = (await request.json().catch(() => ({}))) as {
       question?: string;
+      from?: string | null;
+      to?: string | null;
     };
     const q = (question ?? "").trim();
+    const n = countLogsInRange(from ?? null, to ?? null).total;
+    const scope = rangeLabel(from ?? null, to ?? null);
     const reply =
       q.length === 0
-        ? "Ask me something about your logged data — for example, how your sleep relates to your evening meals."
-        : `Looking at your last 14 days: ${q.replace(/\?+$/, "")} — a few of your logged patterns look relevant here, though the window is short. This is a tentative reading of your sketches, framed as a hypothesis rather than proven cause. (Demo reply — the real reasoning agent will ground each claim in the specific numbers.)`;
+        ? "Ask me something specific about your logged data — for example, how your sleep relates to your evening meals."
+        : `Looking at ${scope} (${n} logs): ${q.replace(
+            /\?+$/,
+            ""
+          )} — a few of your logged patterns look relevant, though I'd hold this loosely. This is a tentative reading of your sketches, framed as a hypothesis rather than proven cause. (Demo reply — the real agent will ground each claim in the specific numbers.)`;
     return HttpResponse.json({ reply });
   }),
 
@@ -402,19 +443,162 @@ export const handlers = [
   }),
 ];
 
-const seedInsights: Insight[] = [
-  {
-    id: "ins_1",
-    title: "Later meals, shorter sleep",
-    body: "On days your last meal was after 8pm, hours slept trended lower. This is a weak correlation over a small window, not proven causation.",
-    confidence: "low",
-    entityIds: ["last_meal", "sleep"],
-  },
-  {
-    id: "ins_2",
-    title: "Walking and calmer moods",
-    body: "Days with a logged walk showed more 'Calm' and 'Focused' mood taps. Encouraging as a pattern to keep observing.",
-    confidence: "medium",
-    entityIds: ["walking", "mood"],
-  },
-];
+/* ---------------- insight store + mocked generator ---------------- */
+
+const insightStore: Insight[] = [];
+
+function rangeLabel(from: string | null, to: string | null): string {
+  if (!from && !to) return "all logged days";
+  const f = from ?? "the beginning";
+  const t = to ?? "today";
+  return `${f} – ${t}`;
+}
+
+// count logs whose occurred_at date falls within [from, to] (inclusive).
+function countLogsInRange(from: string | null, to: string | null) {
+  const inRange = logs.filter((l) => {
+    const d = l.occurred_at.slice(0, 10);
+    if (from && d < from) return false;
+    if (to && d > to) return false;
+    return true;
+  });
+  const entities = new Set(inRange.map((l) => l.definitionId));
+  return { total: inRange.length, entityCount: entities.size, inRange };
+}
+
+const GENERATED_BY = "claude-mock-v0";
+
+// Produces 0..N stored insight rows for a range. Mirrors the intended real
+// behavior: hedged, entity-cited, and — when data is thin — a single honest
+// "no useful insight yet" card rather than invented correlations.
+function generateInsights(from: string | null, to: string | null): Insight[] {
+  const now = new Date().toISOString();
+  const { total, entityCount, inRange } = countLogsInRange(from, to);
+  const base = {
+    user_id: MOCK_USER_ID,
+    generated_at: now,
+    range_from: from,
+    range_to: to,
+    generated_by: GENERATED_BY,
+  };
+
+  // thin data → one honest non-insight (nudges toward chat)
+  if (total < 12 || entityCount < 3) {
+    return [
+      {
+        ...base,
+        id: nextId("ins"),
+        title: "Not enough to say yet",
+        body: `Over ${rangeLabel(
+          from,
+          to
+        )} there are only ${total} logs across ${entityCount} ${
+          entityCount === 1 ? "entity" : "entities"
+        } — too sparse to draw anything trustworthy. Log a bit more, or ask me something specific in the chat below.`,
+        confidence: "low",
+        entityIds: [],
+      },
+    ];
+  }
+
+  // count a couple of signals actually present in range so the text is grounded
+  const has = (id: string) => inRange.some((l) => l.definitionId === id);
+  const out: Insight[] = [];
+
+  if (has("last_meal") && has("sleep")) {
+    out.push({
+      ...base,
+      id: nextId("ins"),
+      title: "Later meals, shorter sleep",
+      body: `Across ${rangeLabel(
+        from,
+        to
+      )}, nights following a later last-meal time tended to show fewer hours slept. A weak association over ${total} logs — a hypothesis to watch, not proven cause.`,
+      confidence: "low",
+      entityIds: ["last_meal", "sleep"],
+    });
+  }
+
+  if (has("walking") && has("sleep")) {
+    out.push({
+      ...base,
+      id: nextId("ins"),
+      title: "Walking days, steadier sleep",
+      body: `Days with a logged walk more often preceded a full night's sleep in this window. Encouraging as a pattern to keep observing; the sample is still modest.`,
+      confidence: "medium",
+      entityIds: ["walking", "sleep"],
+    });
+  }
+
+  if (has("weight")) {
+    out.push({
+      ...base,
+      id: nextId("ins"),
+      title: "Weight trend is gentle",
+      body: `Weight over ${rangeLabel(
+        from,
+        to
+      )} drifts only slightly — well within normal day-to-day variation. Nothing to act on; shown descriptively.`,
+      confidence: "medium",
+      entityIds: ["weight"],
+    });
+  }
+
+  // guarantee at least one card even if the has() checks all missed
+  if (out.length === 0) {
+    out.push({
+      ...base,
+      id: nextId("ins"),
+      title: "Patterns are still forming",
+      body: `There are ${total} logs across ${entityCount} entities in ${rangeLabel(
+        from,
+        to
+      )}, but no single relationship stands out yet. Ask me something specific in the chat below.`,
+      confidence: "low",
+      entityIds: [],
+    });
+  }
+
+  return out;
+}
+
+// Seed a couple of prior insights so the tab isn't empty on first load.
+(function seedInsights() {
+  const mk = (
+    daysAgo: number,
+    partial: Omit<
+      Insight,
+      "user_id" | "generated_at" | "range_from" | "range_to" | "generated_by"
+    >
+  ): Insight => {
+    const g = new Date();
+    g.setDate(g.getDate() - daysAgo);
+    const to = g.toISOString().slice(0, 10);
+    const fromD = new Date(g);
+    fromD.setDate(fromD.getDate() - 14);
+    return {
+      ...partial,
+      user_id: MOCK_USER_ID,
+      generated_at: g.toISOString(),
+      range_from: fromD.toISOString().slice(0, 10),
+      range_to: to,
+      generated_by: GENERATED_BY,
+    };
+  };
+  insightStore.push(
+    mk(2, {
+      id: nextId("ins"),
+      title: "Later meals, shorter sleep",
+      body: "Over the prior two weeks, later last-meal times tended to precede fewer hours slept. A weak association, framed as a hypothesis rather than proven cause.",
+      confidence: "low",
+      entityIds: ["last_meal", "sleep"],
+    }),
+    mk(2, {
+      id: nextId("ins"),
+      title: "Walking days, steadier sleep",
+      body: "Days with a logged walk more often preceded a full night's sleep. Encouraging as a pattern to keep observing.",
+      confidence: "medium",
+      entityIds: ["walking", "sleep"],
+    })
+  );
+})();
