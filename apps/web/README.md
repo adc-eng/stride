@@ -39,9 +39,11 @@ Two kinds of tracked thing, both user-definable later:
 - **outcomes** — things observed: Weight, Mood.
 
 Every log carries `occurred_at` (when it happened = page-date + a time) and
-`logged_at` (server write time). Time is optional for most entries and
-**compulsory** for Sleep (worded "Bed time") and Last meal. Unset time defaults
-to now on today, noon when backfilling a past date.
+`logged_at` (server write time), and is `user_id`-scoped (the mock stamps a
+constant `user_id`; the real backend takes it from the verified token, never the
+body). Time is optional for most entries and **compulsory** for Sleep (worded
+"Bed time") and Last meal. Unset time defaults to now on today, noon when
+backfilling a past date.
 
 ### Seed entities (in `src/mocks/handlers.ts`)
 
@@ -62,7 +64,8 @@ to now on today, noon when backfilling a past date.
 - **Sleep is repeatable** (naps / split sleep): value = hours, quality in
   attributes, bed time = `occurred_at`.
 - **Breathing / stretches** are binary in the UI but always store
-  `duration_min: 5`.
+  `duration_min: 5`; **Walking** toggles with a default `duration_min: 20` (the
+  checklist has no minutes input) so it charts on the Dashboard.
 - **Water** is one entity: quick-add buttons (4/8/16/24 oz) and a free-flow
   total both append here; the day total is a read-time sum.
 - **Mood** is one-tap "now" logging (Energized, Focused, Calm, Tired, Stressed,
@@ -81,8 +84,15 @@ to now on today, noon when backfilling a past date.
   Outcomes row (Weight line + greyed-but-live Daily vibe), then inputs (sleep
   hours, bed time, water/day, last-meal time as a bubble sized by heaviness,
   breathing/stretches binary, walking minutes).
-- **Insights (`/insights`)** — the nightly insight cards plus an "Ask me" chat
-  posting to a mocked `/insights/ask`.
+- **Insights (`/insights`)** — **on-demand** generation, not a nightly batch. A
+  page-level date range (All / 7d / 30d) scopes everything. "Generate top
+  insights" runs the mocked reasoning over that range, **persists** the result,
+  and the list re-fetches newest-first (a scrollable column, most recent on
+  top). Each card shows its provenance — the range it was based on, when it was
+  generated, and by which model. When the range holds too little data, the
+  honest result is a single "not enough to say yet" card. A separate,
+  range-scoped **"Ask me" chat** (`POST /chat`) answers ad-hoc questions and is
+  *not* persisted; the artifact-attach control is present but disabled.
 - **Wall (`/wall`)** — bookmarks (local state; no API yet).
 
 ## Mocked contract (resource-oriented, time-series)
@@ -96,15 +106,19 @@ POST   /api/inputs/{id}/logs             append { value?, occurred_at?, attribut
 DELETE /api/inputs/{id}/logs/{logId}     remove (checklist untoggle)
 GET    /api/outcomes/{id}/logs
 POST   /api/outcomes/{id}/logs
-GET    /api/insights                     cross-entity agent output (read-only)
-POST   /api/insights/ask                 mocked "Ask me" reply
+GET    /api/insights?limit=10            last N stored insights, newest first
+POST   /api/insights/generate            { from?, to? } → runs reasoning, persists + returns rows
+POST   /api/chat                         { question, from?, to? } → range-scoped reply (not persisted)
 POST   /api/captures                     { raw_text, source } note/voice proxy
 ```
 
 `?type=` is the filter on the single `/logs` collection — there is no
-`/input_logs` endpoint. Mock state is in-memory with ~14 days of seeded history
-so the Dashboard has something to chart; a write then re-read reflects the
-change, but a full page reload resets to seed (intentional).
+`/input_logs` endpoint. Every log and insight carries `user_id`. A stored
+insight row is `{ id, user_id, title, body, confidence, entityIds, generated_at,
+range_from, range_to, generated_by }` — so provenance travels with the data.
+Mock state is in-memory with ~14 days of seeded history (and a couple of seeded
+prior insights) so the Dashboard and Insights tab aren't empty; a write then
+re-read reflects the change, but a full page reload resets to seed (intentional).
 
 ## Structure
 

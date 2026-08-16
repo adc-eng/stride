@@ -20,6 +20,10 @@ touches the database or calls the LLM. Every client is an HTTP consumer of it.
   does arithmetic on raw rows. This *scopes* the old "compute-in-SQL" rule — the
   guardrail is now "ground every claim in a provided sketch, quote the numbers,
   label correlation/hypothesis, never causation."
+- **Insight generation**: **on-demand and range-scoped** — the client asks for a
+  date range, the backend computes that range's sketches, the LLM reasons, and
+  the result is **persisted** with provenance. Nightly is just the same call on
+  a schedule later, so the reasoning service stays trigger-agnostic.
 - **Contract**: FastAPI auto-emits OpenAPI to `packages/api-contract` for
   clients. The backend is the producer; clients codegen from it.
 
@@ -41,7 +45,10 @@ schema vocabulary.
   (for image outcomes, `value` is an object-storage reference).
 - `captures` — `id, user_id, raw_text, source, status, created_at`
   (immutable raw input; `status` tracks the parse/confirm lifecycle).
-- `insights` (roadmap) — nightly cross-entity agent output, its own lifecycle.
+- `insights` — `id, user_id, generated_at, range_from, range_to, generated_by,
+  title, body, confidence, entity_ids[]`. Each generation appends rows; nothing
+  is overwritten, so provenance (which window, when, which model) travels with
+  every insight.
 
 Notes: `description` is **first-class** (the agent reasons over it). Every log
 carries both `occurred_at` (when it happened) and `logged_at` (server write
@@ -64,26 +71,40 @@ DELETE /inputs/{id}/logs/{log_id}
 POST /outcomes/{id}/logs         · GET /outcomes/{id}/logs?range=…
 GET  /logs?type=input|outcome    union read (&date= &range=); no /input_logs endpoint
 GET  /inputs/{id}/stats?range=30d   SQL-computed sketch (the agent's input) — planned
-GET  /insights                   cross-entity nightly agent output (read-only in mock)
+GET  /insights?limit=10          last N stored insights, newest first
+POST /insights/generate          { from?, to? } → run reasoning over range, persist + return rows
+POST /chat                       { question, from?, to? } → range-scoped reply (NOT persisted)
 POST /captures                   { raw_text, source } → immutable raw row
 ```
 
 `user_id` is always taken from the token, never the body. Image outcomes upload
 direct-to-S3 via a backend-issued pre-signed URL; the log stores the object key.
+`/insights/generate` persists; `/chat` does not (different lifecycle, different
+trust level).
 
-## The nightly agent (design, not built)
+## The reasoning pass (design, on-demand)
 
-Per night, for each input and outcome: a JSON object with its **description** +
-a **statistical sketch** (computed in SQL — no raw row dumps). The LLM is asked
-to *reason* about likely cross-relationships from its world-knowledge and these
-numbers, and return the top N insights plus proposals for what to track next.
+For a requested range, for each input and outcome: a JSON object with its
+**description** + a **statistical sketch** (computed in SQL — no raw row dumps).
+The LLM is asked to *reason* about likely cross-relationships from its
+world-knowledge and these numbers, and return insights (each with a confidence
+and the entities it leaned on), plus — as the thesis matures — proposals for what
+to track next.
 
-Hard guardrails belong in the agent's system prompt: ground every claim in a
-sketch and quote the numbers; label hypothesis/correlation, never causation;
-flag sparse data as inconclusive; **observe-don't-pressure applies to
-suggestions too** (never propose restriction-gamification); **confirm-before-
-commit** on both LLM-inferred entries and agent track proposals. Batch (nightly)
-and interactive (the "Ask me" chat) share trigger-agnostic service functions.
+Output discipline: return **at least one** result, but allow **zero
+relationships** — when the range holds too little data, the correct answer is a
+single honest "nothing trustworthy to say yet, ask me something specific" card
+at low confidence, *not* a manufactured correlation. More insights are warranted
+only when the data supports them.
+
+Hard guardrails belong in the system prompt: ground every claim in a sketch and
+quote the numbers; label hypothesis/correlation, never causation; flag sparse
+data as inconclusive and let low-confidence output be a modest observation
+rather than a claimed link; **observe-don't-pressure applies to suggestions too**
+(never propose restriction-gamification); **confirm-before-commit** on both
+LLM-inferred entries and agent track proposals. On-demand generation and any
+future scheduled run share trigger-agnostic service functions; interactive chat
+uses the same reasoning core with a different (non-persisting) trigger.
 
 ## The canonical vertical slice
 
@@ -123,10 +144,13 @@ reviewed artifact:
 
 ### Constitution — at minimum
 `user_id` always from the verified token; raw-capture/structured-log
-separation; **sketches-in-SQL / reasoning-in-LLM**; **no auto-commit** of
-LLM-inferred entries *or* agent track proposals without user confirmation;
-**observe-don't-pressure as a hard agent constraint**; test-first gate; OpenAPI
-published to `packages/api-contract`; no AWS SDKs in core logic.
+separation; **sketches-in-SQL / reasoning-in-LLM**; **insights persisted with
+provenance** (range + generated_at + model); **no auto-commit** of LLM-inferred
+entries *or* agent track proposals without user confirmation;
+**observe-don't-pressure as a hard agent constraint** (including on
+suggestions); thin-data honesty (a null-relationship result is valid);
+test-first gate; OpenAPI published to `packages/api-contract`; no AWS SDKs in
+core logic.
 
 ### The verification gap — read this
 Spec Kit **stops at implementation and does not verify the code satisfies the
