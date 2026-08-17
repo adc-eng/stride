@@ -1,0 +1,5 @@
+004 open items to carry forward (note these in your handoff doc):
+
+Sketch strategy keyed off the entity definition's type field — numeric entities get mean/median/sd/trend; enum entities get label-frequency distributions (GROUP BY attributes->>'level'); image/other skipped.
+Attribute-sketching is additive: attributes JSONB keys are SQL-reachable via (attributes->>'key')::numeric, gated only on a per-entity declaration of which keys are numeric/sketchable (metadata on the input/outcome definition). No log-table change needed.
+Sketches are transient (computed per range, fed to LLM, discarded); only insights persist.

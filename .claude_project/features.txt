@@ -1,0 +1,18 @@
+Feaature List:
+--------------
+
+001-input-logging — Stubbed auth (via the get_current_user seam) + POST/GET /inputs/{id}/logs + Postgres persistence + read-back. No LLM. The canonical vertical slice everything hangs off; frontend already built against the matching mock.
+
+002-outcome-tracking — Same vertical for outcomes (Weight, Mood) + real trend series replacing seeded mock data. Still stubbed auth, still no LLM.
+
+003-real-auth — Real Google OAuth (Authorization Code + PKCE, backend as confidential client) + session JWT minting/validation. Swaps the stub body only; per the constitution this is a non-breaking change since the identity contract was fixed from 001.
+
+004-range-scoped-sketches — SQL statistical sketches per entity for a requested range (GET /inputs/{id}/stats?range=). Deterministic, no LLM. The real numbers feature 005 reasons over. Trigger-agnostic so a future schedule is just the same call.
+
+005-on-demand-insights — POST /insights/generate {from?,to?} runs reasoning over that range's sketches + descriptions via the LLMClient seam (OpenAI demo / Ollama local), persists with provenance, GET /insights reads newest-first. Thin-data honesty + guardrails enforced. This is the demo's must-have LLM feature.
+
+006-ask-me-chat — POST /chat {question,from?,to?}, range-scoped, not persisted. Same reasoning core as 005, non-persisting trigger. Precedes suggest-and-track because that loop runs through chat.
+
+007-capture-to-structured — Free-text POST /captures → LLM parses into candidate logs → confirm-before-commit. Independent input path; deferred past the reasoning chain. (Not in demo scope — capture-via-chat is excluded.)
+
+008-voice-capture — Whisper transcription feeding the same capture→confirm flow. Voice is a third input path, not new logic. (Not in demo scope.)
