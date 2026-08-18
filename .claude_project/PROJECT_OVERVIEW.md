@@ -12,6 +12,34 @@ first, then asks for critique.
 
 ---
 
+## Mock demo hardening + live LLM integration (session, parallel to backend)
+
+Full detail in `HANDOFF_mock_demo_hardening.md`. Summary: backend Features
+002–008 are untouched (still exactly where `HANDOFF_001` left them) — this
+was a separate, parallel push to make the **mock** demo-ready without
+waiting on the real backend: a reproducible 60-day seeded dataset with three
+designed narrative arcs (sleep-lag/cushion contrast, late-meal→weight,
+movement-lapse→mood), real sketch computation client-side mirroring the
+backend's intended sketch shape, and — the headline change — **the Insights
+tab and "Ask me" chat now call the real Anthropic API** (forced tool-use for
+structured insight output, plain-text for chat) instead of returning canned
+text.
+
+Two real bugs were found and fixed along the way: a stale-reload bug where
+Mood taps didn't visibly update until something else forced a refetch, and a
+local/UTC date mismatch across several files that could route a live write
+to a different calendar-date bucket than the seed data, depending on
+timezone and time of day.
+
+**Important:** the live LLM calls run directly from the browser with the
+Anthropic key in `apps/web/.env.local` (gitignored) — this is a deliberate,
+temporary violation of the "LLM calls: backend-side only" principle above,
+purely so the demo can show real reasoning before Feature 005 is built. It
+must move server-side when that feature lands.
+
+---
+
+
 ## Where the build actually is
 
 **Frontend — built and running.** Vite + React + TS + TanStack Router + MSW +
