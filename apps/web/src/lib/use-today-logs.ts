@@ -8,12 +8,20 @@ import {
 } from "./api";
 
 export function todayDate(): string {
-  return new Date().toISOString().slice(0, 10);
+  // Local calendar date — must match the mock's local-date convention (see
+  // handlers.ts) or "today" here and "today" in the seed/dashboard drift
+  // apart for part of every day depending on timezone.
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-// Composes an ISO occurred_at from the page date + an HH:MM time string.
+// Composes a local (not UTC) occurred_at from the page date + an HH:MM time
+// string — no toISOString() here, since that converts to UTC and can shift
+// the calendar date near midnight, breaking the local-date convention the
+// rest of the app (seed data, Dashboard bucketing) relies on.
 export function composeOccurredAt(date: string, hhmm: string): string {
-  return new Date(`${date}T${hhmm}:00`).toISOString();
+  return `${date}T${hhmm}:00`;
 }
 
 export function useTodayLogs(date: string) {

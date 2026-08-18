@@ -1,0 +1,107 @@
+{
+  "model": "claude-sonnet-4-6",
+  "max_tokens": 5000,
+  "messages": [
+    {
+      "role": "user",
+      "content": "Here is the summarized data over 2026-06-19 – 2026-08-17 (60 days) for the user, computed as statistical sketches — you are not given raw rows, only these numbers:
+
+Sleep (h): n=60, mean=6.79, median=6.81, sd=1.01.
+  min=2h on 2026-07-28, max=8.2h on 2026-06-19.
+  outliers (>1.5sd): 3h on 2026-06-30, 2h on 2026-07-28.
+  last-7d avg=6.73, prior-7d avg=6.67, trend=+0.06.
+  completion=100%, last logged 2026-08-17.
+
+Weight (lbs): n=60, mean=179.67, median=179.5, sd=0.69.
+  min=178.5lbs on 2026-08-13, max=181.6lbs on 2026-07-16.
+  outliers (>1.5sd): 180.8lbs on 2026-07-13, 181.2lbs on 2026-07-14, 181.4lbs on 2026-07-15, 181.6lbs on 2026-07-16, 181.3lbs on 2026-07-17, 178.5lbs on 2026-08-13, 178.6lbs on 2026-08-16.
+  last-7d avg=178.91, prior-7d avg=179.03, trend=-0.11.
+  completion=100%, last logged 2026-08-17.
+
+Last meal (heaviness 1-5, logged at meal time) (pts): n=60, mean=3.07, median=3, sd=1.47.
+  min=1pts on 2026-06-23, max=5pts on 2026-06-28.
+  outliers (>1.5sd): none.
+  last-7d avg=2.14, prior-7d avg=2.86, trend=-0.71.
+  completion=100%, last logged 2026-08-17.
+
+Water intake (oz): n=283, mean=13.02, median=16, sd=7.73.
+  min=4oz on 2026-06-20, max=24oz on 2026-06-20.
+  outliers (>1.5sd): none.
+  last-7d avg=12.61, prior-7d avg=12.88, trend=-0.27.
+  completion=100%, last logged 2026-08-17.
+
+Breathing: completion=62%, last-7d completion=71%.
+  longest gap: 5d (2026-08-01 – 2026-08-05). last logged 2026-08-17.
+
+Stretches: completion=63%, last-7d completion=43%.
+  longest gap: 4d (2026-08-14 – 2026-08-17). last logged 2026-08-13.
+
+Walking: completion=60%, last-7d completion=71%.
+  longest gap: 9d (2026-07-28 – 2026-08-05). last logged 2026-08-16.
+
+Mood (in-the-moment taps): n=311.
+  full-range distribution — Energized:53, Focused:47, Calm:46, Tired:65, Stressed:36, Meh:64.
+  last-7d distribution — Energized:6, Focused:5, Calm:8, Tired:3, Stressed:3, Meh:3.
+  last logged: Energized on 2026-08-16.
+
+Daily vibe (derived from Mood taps, per label):
+  Energized: full-range [None:25, Sometimes:15, Often:19, A lot:0]; last-7d [None:3, Sometimes:0, Often:3, A lot:0].
+    peak days (Often/A lot): 2026-06-20, 2026-06-21, 2026-06-22, 2026-06-23, 2026-06-25, 2026-06-26, 2026-07-07, 2026-07-09, 2026-07-12, 2026-07-13, 2026-07-15, 2026-07-18, 2026-07-22, 2026-07-23, 2026-07-28, 2026-08-10, 2026-08-12, 2026-08-13, 2026-08-16.
+    longest elevated streak: 4d (2026-06-20 – 2026-06-23).
+  Focused: full-range [None:23, Sometimes:25, Often:11, A lot:0]; last-7d [None:3, Sometimes:1, Often:2, A lot:0].
+    peak days (Often/A lot): 2026-06-26, 2026-06-29, 2026-07-09, 2026-07-14, 2026-07-15, 2026-07-20, 2026-07-23, 2026-07-26, 2026-08-10, 2026-08-11, 2026-08-14.
+    longest elevated streak: 2d (2026-07-14 – 2026-07-15).
+  Calm: full-range [None:26, Sometimes:20, Often:13, A lot:0]; last-7d [None:1, Sometimes:2, Often:3, A lot:0].
+    peak days (Often/A lot): 2026-06-20, 2026-06-22, 2026-06-23, 2026-06-24, 2026-06-29, 2026-07-05, 2026-07-06, 2026-07-09, 2026-07-24, 2026-08-07, 2026-08-12, 2026-08-14, 2026-08-15.
+    longest elevated streak: 3d (2026-06-22 – 2026-06-24).
+  Tired: full-range [None:26, Sometimes:19, Often:8, A lot:6]; last-7d [None:3, Sometimes:3, Often:0, A lot:0].
+    peak days (Often/A lot): 2026-07-01, 2026-07-02, 2026-07-03, 2026-07-04, 2026-07-29, 2026-07-30, 2026-07-31, 2026-08-01, 2026-08-02, 2026-08-03, 2026-08-04, 2026-08-05, 2026-08-06, 2026-08-08.
+    longest elevated streak: 9d (2026-07-29 – 2026-08-06).
+  Stressed: full-range [None:26, Sometimes:30, Often:3, A lot:0]; last-7d [None:3, Sometimes:3, Often:0, A lot:0].
+    peak days (Often/A lot): 2026-07-30, 2026-08-02, 2026-08-05.
+    longest elevated streak: 1d (2026-07-30 – 2026-07-30).
+  Meh: full-range [None:20, Sometimes:25, Often:10, A lot:4]; last-7d [None:3, Sometimes:3, Often:0, A lot:0].
+    peak days (Often/A lot): 2026-07-01, 2026-07-02, 2026-07-03, 2026-07-04, 2026-07-29, 2026-07-30, 2026-07-31, 2026-08-01, 2026-08-02, 2026-08-03, 2026-08-04, 2026-08-05, 2026-08-06, 2026-08-08.
+    longest elevated streak: 9d (2026-07-29 – 2026-08-06).:\n\nBased on the sketches above, call return_insights with between 2 and 5 insights — however many the data actually supports. For each insight:\n\n- Ground every claim in the numbers above and quote them.\n- Explicitly prefix each claim with \"Correlation:\" or \"Hypothesis:\" — never assert causation.\n- confidence_reason must justify the confidence rating using a specific number from the sketches (sample size, or how small a trend delta is relative to its sd).\n- If the range holds too little data overall to support any trustworthy claim, call return_insights with a single insight titled \"Not enough to say yet\", confidence \"low\", and a body explaining why."
+    }
+  ],
+  "tools": [
+    {
+      "name": "return_insights",
+      "description": "Return the generated insights for the requested date range.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "insights": {
+            "type": "array",
+            "minItems": 2,
+            "maxItems": 5,
+            "items": {
+              "type": "object",
+              "properties": {
+                "title": { "type": "string", "description": "Short descriptive title, under 10 words" },
+                "body": {
+                  "type": "string",
+                  "description": "2-4 plain sentences, no markdown, no bullets. Ground every claim in the sketch numbers and quote them. Prefix each claim with 'Correlation:' or 'Hypothesis:'."
+                },
+                "confidence": { "type": "string", "enum": ["low", "medium", "high"] },
+                "confidence_reason": {
+                  "type": "string",
+                  "description": "One sentence justifying the confidence rating using a specific number from the sketches."
+                },
+                "entity_ids": {
+                  "type": "array",
+                  "items": { "type": "string" },
+                  "description": "Entity names this insight draws on (e.g. 'sleep', 'weight', 'mood')."
+                }
+              },
+              "required": ["title", "body", "confidence", "confidence_reason", "entity_ids"]
+            }
+          }
+        },
+        "required": ["insights"]
+      }
+    }
+  ],
+  "tool_choice": { "type": "tool", "name": "return_insights" }
+}

@@ -10,12 +10,13 @@ import {
   XAxis,
   YAxis,
   ZAxis,
-  Cell,
   ResponsiveContainer,
   Tooltip,
 } from "recharts";
 import { api, type LogEntry } from "../lib/api";
-import { Card, SectionLabel } from "../components/ui";
+import { Card, SectionLabel, RangePicker, defaultRangeValue, type RangeValue } from "../components/ui";
+import { VIBE_STACK_ORDER, VIBE_COLORS } from "../lib/vibe";
+import { daysBetween } from "../lib/date-range";
 
 export const Route = createFileRoute("/dashboard")({ component: Dashboard });
 
@@ -24,22 +25,11 @@ export const Route = createFileRoute("/dashboard")({ component: Dashboard });
    client-side into day buckets — this is the demo's end state too.
    ======================================================================= */
 
-const DAYS = 14;
 const TEAL = "var(--color-teal)";
 const CLAY = "var(--color-clay)";
 const SAND = "var(--color-sand)";
 const INKSOFT = "var(--color-ink-soft)";
 
-// last N calendar days as YYYY-MM-DD, oldest first
-function lastNDays(n: number): string[] {
-  const out: string[] = [];
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    out.push(d.toISOString().slice(0, 10));
-  }
-  return out;
-}
 const dayLabel = (iso: string) =>
   new Date(`${iso}T00:00:00`).toLocaleDateString(undefined, {
     month: "numeric",
@@ -64,7 +54,7 @@ function byDay(logs: LogEntry[]): Map<string, LogEntry[]> {
 
 type Row = Record<string, number | string | null>;
 
-function useAllData() {
+function useAllData(from: string, to: string) {
   const [data, setData] = useState<{
     weight: LogEntry[];
     sleep: LogEntry[];
@@ -73,14 +63,15 @@ function useAllData() {
     breathing: LogEntry[];
     stretches: LogEntry[];
     walking: LogEntry[];
-    vibe: LogEntry[];
+    mood: LogEntry[];
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setData(null);
     (async () => {
       try {
-        const range = `${DAYS}d`;
+        const params = { from, to };
         const [
           weight,
           sleep,
@@ -89,16 +80,16 @@ function useAllData() {
           breathing,
           stretches,
           walking,
-          vibe,
+          mood,
         ] = await Promise.all([
-          api.listLogs("outcome", "weight", { range }),
-          api.listLogs("input", "sleep", { range }),
-          api.listLogs("input", "last_meal", { range }),
-          api.listLogs("input", "water", { range }),
-          api.listLogs("input", "breathing", { range }),
-          api.listLogs("input", "stretches", { range }),
-          api.listLogs("input", "walking", { range }),
-          api.listLogs("input", "daily_vibe", { range }),
+          api.listLogs("outcome", "weight", params),
+          api.listLogs("input", "sleep", params),
+          api.listLogs("input", "last_meal", params),
+          api.listLogs("input", "water", params),
+          api.listLogs("input", "breathing", params),
+          api.listLogs("input", "stretches", params),
+          api.listLogs("input", "walking", params),
+          api.listLogs("outcome", "mood", params),
         ]);
         setData({
           weight,
@@ -108,13 +99,13 @@ function useAllData() {
           breathing,
           stretches,
           walking,
-          vibe,
+          mood,
         });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load");
       }
     })();
-  }, []);
+  }, [from, to]);
 
   return { data, error };
 }
@@ -161,6 +152,18 @@ const axisProps = {
   axisLine: false,
 };
 
+// scales tick spacing to both window length and chart width — the full-width
+// charts (breathing/stretches/walking) have roughly double the pixels of the
+// 2-column ones (weight/vibe/sleep/bedtime/water/last-meal), so they can
+// afford twice the label density before overlapping. Window length varies
+// now (custom ranges), so these are functions of the actual day count.
+function xIntervalFull(n: number): number {
+  return Math.max(2, Math.floor(n / 8) - 1);
+}
+function xIntervalHalf(n: number): number {
+  return Math.max(4, Math.floor(n / 4) - 1);
+}
+
 // Consistent chart margins — NO negative left margin (that was pushing the
 // Y-axis off-canvas and garbling ticks). Y-axis gets real width so labels fit.
 const CHART_MARGIN = { top: 6, right: 8, bottom: 0, left: 0 };
@@ -169,7 +172,8 @@ const Y_WIDTH = 30;
 function tooltipStyle() {
   return {
     contentStyle: {
-      background: "var(--color-surface)",
+      background: "rgba(255, 255, 255, 0.55)",
+      backdropFilter: "blur(2px)",
       border: "1px solid var(--color-line)",
       borderRadius: 8,
       fontSize: 12,
@@ -182,19 +186,24 @@ function tooltipStyle() {
    ======================================================================= */
 
 function Dashboard() {
-  const { data, error } = useAllData();
-  const days = lastNDays(DAYS);
+  const [range, setRange] = useState<RangeValue>(defaultRangeValue("60d"));
+  const { data, error } = useAllData(range.from, range.to);
+  const days = daysBetween(range.from, range.to);
 
   return (
     <div className="mx-auto max-w-md px-5 pb-16 pt-10">
-      <header className="mb-8">
+      <header className="mb-6">
         <div className="text-xs uppercase tracking-[0.2em] text-[var(--color-ink-soft)]">
-          Last {DAYS} days
+          {days.length} days · {range.from} – {range.to}
         </div>
         <h1 className="mt-1 font-[family-name:var(--font-display)] text-3xl font-semibold">
           Dashboard
         </h1>
       </header>
+
+      <div className="mb-6">
+        <RangePicker value={range} onChange={setRange} />
+      </div>
 
       {error && (
         <p className="mb-4 text-sm text-[var(--color-clay)]">
@@ -210,7 +219,7 @@ function Dashboard() {
             <SectionLabel>Outcomes</SectionLabel>
             <div className="grid grid-cols-2 gap-3">
               <WeightChart logs={data.weight} days={days} />
-              <VibeChart logs={data.vibe} days={days} />
+              <VibeChart logs={data.mood} days={days} />
             </div>
           </section>
 
@@ -275,7 +284,7 @@ function WeightChart({ logs, days }: { logs: LogEntry[]; days: string[] }) {
     <ChartFrame title="Weight" hint="lbs">
       <ResponsiveContainer width="100%" height={130}>
         <LineChart data={rows} margin={CHART_MARGIN}>
-          <XAxis dataKey="day" {...axisProps} interval={3} />
+          <XAxis dataKey="day" {...axisProps} interval={xIntervalHalf(days.length)} />
           <YAxis
             domain={[min, max]}
             {...axisProps}
@@ -298,43 +307,49 @@ function WeightChart({ logs, days }: { logs: LogEntry[]; days: string[] }) {
   );
 }
 
-const VIBES = ["Energized", "Focused", "Calm", "Tired", "Stressed", "Meh"];
-const VIBE_COLORS: Record<string, string> = {
-  Energized: "var(--color-teal)",
-  Focused: "var(--color-teal)",
-  Calm: "var(--color-teal-soft)",
-  Tired: "var(--color-ink-soft)",
-  Stressed: "var(--color-clay)",
-  Meh: "var(--color-sand)",
-};
+// Daily vibe: one row/day, attributes = { [label]: "none"|"sometimes"|"often"|"alot" }.
+// Fixed-order stacked bar, always 6 units tall (proportional split of the
+// day's 6 label scores), so a day's shape is legible at a glance rather than
+// averaged away across the window — and changing today's Mood taps visibly
+// moves today's bar. Order/scores/colors come from ../lib/vibe (shared with
+// the Today Mood buttons).
 
-// Daily vibe: greyed but live. Counts each vibe type across the window.
+// Same math as Today's Daily-vibe bar — direct proportion of raw Mood tap
+// counts per label, per day (no none/sometimes/often/alot bucketing here).
+// Previously this read the separately-derived, bucketed daily_vibe rows,
+// which could show a different (flatter) shape than Today's live bar for
+// the same day — one source of truth now, not two that can drift apart.
 function VibeChart({ logs, days }: { logs: LogEntry[]; days: string[] }) {
-  const inWindow = new Set(days);
-  const counts = new Map<string, number>(VIBES.map((v) => [v, 0]));
+  const byDayCounts = new Map<string, Record<string, number>>();
   for (const l of logs) {
-    if (!inWindow.has(dayOf(l))) continue;
-    const v = String(l.value);
-    if (counts.has(v)) counts.set(v, counts.get(v)! + 1);
+    const d = dayOf(l);
+    const label = String(l.value);
+    const rec = byDayCounts.get(d) ?? {};
+    rec[label] = (rec[label] ?? 0) + 1;
+    byDayCounts.set(d, rec);
   }
-  const rows: Row[] = VIBES.map((v) => ({ vibe: v, count: counts.get(v) ?? 0 }));
+
+  const rows: Row[] = days.map((d) => {
+    const counts = byDayCounts.get(d) ?? {};
+    const scores = VIBE_STACK_ORDER.map((label) => counts[label] ?? 0);
+    const total = scores.reduce((a, b) => a + b, 0);
+    const row: Row = { day: dayLabel(d) };
+    VIBE_STACK_ORDER.forEach((label, i) => {
+      row[label] = total > 0 ? Math.round(((scores[i] / total) * 6) * 100) / 100 : 0;
+    });
+    return row;
+  });
 
   return (
-    <ChartFrame title="Daily vibe" badge="preview" faded>
-      <ResponsiveContainer width="100%" height={130}>
+    <ChartFrame title="Daily vibe" hint="stacked, proportional to Mood taps">
+      <ResponsiveContainer width="100%" height={140}>
         <BarChart data={rows} margin={CHART_MARGIN}>
-          <XAxis
-            dataKey="vibe"
-            {...axisProps}
-            interval={0}
-            tickFormatter={(s: string) => s.slice(0, 3)}
-          />
-          <YAxis {...axisProps} width={Y_WIDTH} allowDecimals={false} tickCount={4} />
-          <Bar dataKey="count" radius={[3, 3, 0, 0]}>
-            {rows.map((r, i) => (
-              <Cell key={i} fill={VIBE_COLORS[r.vibe as string] ?? INKSOFT} />
-            ))}
-          </Bar>
+          <XAxis dataKey="day" {...axisProps} interval={xIntervalHalf(days.length)} />
+          <YAxis {...axisProps} width={Y_WIDTH} domain={[0, 6]} tickCount={4} />
+          <Tooltip {...tooltipStyle()} />
+          {VIBE_STACK_ORDER.map((label) => (
+            <Bar key={label} dataKey={label} stackId="vibe" fill={VIBE_COLORS[label]} />
+          ))}
         </BarChart>
       </ResponsiveContainer>
     </ChartFrame>
@@ -357,7 +372,7 @@ function SleepHoursChart({ logs, days }: { logs: LogEntry[]; days: string[] }) {
     <ChartFrame title="Sleep" hint="hours / day">
       <ResponsiveContainer width="100%" height={130}>
         <BarChart data={rows} margin={CHART_MARGIN}>
-          <XAxis dataKey="day" {...axisProps} interval={3} />
+          <XAxis dataKey="day" {...axisProps} interval={xIntervalHalf(days.length)} />
           <YAxis
             {...axisProps}
             width={Y_WIDTH}
@@ -393,7 +408,7 @@ function BedTimeChart({ logs, days }: { logs: LogEntry[]; days: string[] }) {
     <ChartFrame title="Bed time" hint="when sleep started">
       <ResponsiveContainer width="100%" height={130}>
         <LineChart data={rows} margin={CHART_MARGIN}>
-          <XAxis dataKey="day" {...axisProps} interval={3} />
+          <XAxis dataKey="day" {...axisProps} interval={xIntervalHalf(days.length)} />
           <YAxis
             domain={[20, 26]}
             ticks={[21, 23, 25]}
@@ -446,7 +461,7 @@ function WaterChart({ logs, days }: { logs: LogEntry[]; days: string[] }) {
     <ChartFrame title="Water" hint="total oz / day">
       <ResponsiveContainer width="100%" height={130}>
         <BarChart data={rows} margin={CHART_MARGIN}>
-          <XAxis dataKey="day" {...axisProps} interval={3} />
+          <XAxis dataKey="day" {...axisProps} interval={xIntervalHalf(days.length)} />
           <YAxis {...axisProps} width={Y_WIDTH} tickCount={4} allowDecimals={false} />
           <Tooltip {...tooltipStyle()} content={<WaterTip />} />
           <Bar dataKey="oz" fill="var(--color-teal-soft)" radius={[3, 3, 0, 0]} />
@@ -457,6 +472,12 @@ function WaterChart({ logs, days }: { logs: LogEntry[]; days: string[] }) {
 }
 
 // Last meal: scatter of meal-time (y = hour) with dot SIZE = heaviness (1-5).
+function evenTicks(n: number, count = 4): number[] {
+  if (n <= 1) return [0];
+  const step = (n - 1) / (count - 1);
+  return Array.from({ length: count }, (_, i) => Math.round(i * step));
+}
+
 function LastMealChart({ logs, days }: { logs: LogEntry[]; days: string[] }) {
   const idx = new Map(days.map((d, i) => [d, i]));
   const points = logs
@@ -497,7 +518,7 @@ function LastMealChart({ logs, days }: { logs: LogEntry[]; days: string[] }) {
             type="number"
             dataKey="x"
             domain={[-0.5, days.length - 0.5]}
-            ticks={[0, 4, 8, 12]}
+            ticks={evenTicks(days.length, 4)}
             tickFormatter={(i: number) => dayLabel(days[i] ?? days[0])}
             {...axisProps}
           />
@@ -561,7 +582,7 @@ function BinaryHabitChart({
     <ChartFrame title={title} hint="done each day">
       <ResponsiveContainer width="100%" height={80}>
         <BarChart data={rows} margin={CHART_MARGIN}>
-          <XAxis dataKey="day" {...axisProps} interval={3} />
+          <XAxis dataKey="day" {...axisProps} interval={xIntervalFull(days.length)} />
           <YAxis
             domain={[0, 1]}
             ticks={[0, 1]}
@@ -592,7 +613,7 @@ function WalkingChart({ logs, days }: { logs: LogEntry[]; days: string[] }) {
     <ChartFrame title="Walking" hint="minutes / day">
       <ResponsiveContainer width="100%" height={100}>
         <BarChart data={rows} margin={CHART_MARGIN}>
-          <XAxis dataKey="day" {...axisProps} interval={3} />
+          <XAxis dataKey="day" {...axisProps} interval={xIntervalFull(days.length)} />
           <YAxis {...axisProps} width={Y_WIDTH} tickCount={4} allowDecimals={false} />
           <Tooltip {...tooltipStyle()} />
           <Bar dataKey="minutes" fill={TEAL} radius={[3, 3, 0, 0]} />

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import {
   Wind,
   StretchHorizontal,
@@ -24,6 +24,7 @@ import {
 import type { Definition, LogEntry } from "../lib/api";
 import { api } from "../lib/api";
 import { Card, SectionLabel, inputCls } from "../components/ui";
+import { VIBE_COLORS, VIBE_STACK_ORDER, hexToRgba } from "../lib/vibe";
 
 export const Route = createFileRoute("/")({ component: Today });
 
@@ -144,8 +145,15 @@ function Today() {
 
         <section>
           <SectionLabel>Mood</SectionLabel>
-          {get("mood") && <MoodCard def={get("mood")!} entries={logsFor("mood")} />}
-          {get("daily_vibe") && <DailyVibeCard def={get("daily_vibe")!} />}
+          {get("mood") && (
+            <MoodCard
+              def={get("mood")!}
+              entries={logsFor("mood")}
+              onAppend={append}
+              onRemove={remove}
+            />
+          )}
+          {get("daily_vibe") && <DailyVibeCard moodEntries={logsFor("mood")} />}
         </section>
 
         <section>
@@ -174,16 +182,19 @@ function CardHead({
   icon: Icon,
   title,
   hint,
+  right,
 }: {
   icon: any;
   title: string;
   hint?: string;
+  right?: ReactNode;
 }) {
   return (
     <div className="mb-3">
       <div className="flex items-center gap-2 text-sm font-medium">
         <Icon size={16} className="text-[var(--color-teal)]" />
         <span>{title}</span>
+        {right && <span className="ml-auto">{right}</span>}
       </div>
       {hint && (
         <p className="mt-1 text-xs text-[var(--color-ink-soft)]">{hint}</p>
@@ -643,19 +654,26 @@ function WeightCard({
   );
 }
 
-/* ---------- mood: one-tap "now" ---------- */
+/* ---------- mood: one-tap "now", fixed per-label tint + Add/Less toggle ---------- */
 
-const moodTone: Record<string, string> = {
-  Energized: "text-[var(--color-teal)]",
-  Focused: "text-[var(--color-teal)]",
-  Calm: "text-[var(--color-teal)]",
-  Tired: "text-[var(--color-ink-soft)]",
-  Stressed: "text-[var(--color-clay)]",
-  Meh: "text-[var(--color-ink-soft)]",
-};
+// Fixed, non-progressive, semi-translucent tint — same regardless of tap
+// count. Shared between the Mood buttons and the Daily-vibe bar so they read
+// as one visual language, not two different intensities.
+const VIBE_TINT_ALPHA = 0.14;
 
-function MoodCard({ def, entries }: { def: Definition; entries: LogEntry[] }) {
+function MoodCard({
+  def,
+  entries,
+  onAppend,
+  onRemove,
+}: {
+  def: Definition;
+  entries: LogEntry[];
+  onAppend: AppendFn;
+  onRemove: RemoveFn;
+}) {
   const [flash, setFlash] = useState<string | null>(null);
+  const [mode, setMode] = useState<"add" | "less">("add");
   const counts = entries.reduce<Record<string, number>>((m, e) => {
     const k = String(e.value);
     m[k] = (m[k] ?? 0) + 1;
@@ -664,11 +682,15 @@ function MoodCard({ def, entries }: { def: Definition; entries: LogEntry[] }) {
 
   const tap = async (mood: string) => {
     setFlash(mood);
-    await api.addLog("outcome", def.id, {
-      value: mood,
-      attributes: { at: "now" },
-    });
-    setTimeout(() => setFlash(null), 500);
+    if (mode === "add") {
+      await onAppend("outcome", def.id, { value: mood, attributes: { at: "now" } });
+    } else {
+      // subtract: remove today's most recent tap of this mood, floor at 0
+      const todaysOfThisMood = entries.filter((e) => String(e.value) === mood);
+      const last = todaysOfThisMood[todaysOfThisMood.length - 1];
+      if (last) await onRemove("outcome", def.id, last.id);
+    }
+    setTimeout(() => setFlash(null), 400);
   };
 
   return (
@@ -676,64 +698,88 @@ function MoodCard({ def, entries }: { def: Definition; entries: LogEntry[] }) {
       <CardHead
         icon={Smile}
         title="Mood"
-        hint="Tap how you feel, anytime. Each tap logs the moment."
+        hint="Tap how you feel, anytime. More taps - the more of that mood"
+        right={
+          <button
+            onClick={() => setMode((m) => (m === "add" ? "less" : "add"))}
+            className={`rounded-full border px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide transition ${
+              mode === "add"
+                ? "border-[var(--color-teal)] bg-[var(--color-teal-soft)] text-[var(--color-teal)]"
+                : "border-[var(--color-clay)] bg-[var(--color-clay)]/15 text-[var(--color-clay)]"
+            }`}
+          >
+            {mode === "add" ? "Add" : "Less"}
+          </button>
+        }
       />
       <div className="grid grid-cols-3 gap-2">
-        {(def.enumOptions ?? []).map((m) => (
-          <button
-            key={m}
-            onClick={() => tap(m)}
-            className={`rounded-xl border px-2 py-3 text-sm font-medium transition active:scale-95 ${
-              flash === m
-                ? "border-[var(--color-teal)] bg-[var(--color-teal-soft)]"
-                : "border-[var(--color-line)] bg-[var(--color-surface-2)] hover:border-[var(--color-teal)]"
-            } ${moodTone[m] ?? ""}`}
-          >
-            {m}
-            {counts[m] ? (
-              <span className="ml-1 text-[10px] text-[var(--color-ink-soft)]">
-                ×{counts[m]}
-              </span>
-            ) : null}
-          </button>
-        ))}
+        {(def.enumOptions ?? []).map((m) => {
+          const count = counts[m] ?? 0;
+          const color = VIBE_COLORS[m] ?? "var(--color-ink-soft)";
+          return (
+            <button
+              key={m}
+              onClick={() => tap(m)}
+              style={{
+                backgroundColor: hexToRgba(color, VIBE_TINT_ALPHA),
+                borderColor: color,
+                color: "var(--color-ink)",
+              }}
+              className={`rounded-xl border px-2 py-3 text-sm font-medium transition active:scale-95 ${
+                flash === m ? "ring-2 ring-offset-1 ring-[var(--color-teal)]" : ""
+              }`}
+            >
+              {m}
+              {count > 0 ? (
+                <span className="ml-1 text-[10px] font-normal opacity-70">[{count}]</span>
+              ) : null}
+            </button>
+          );
+        })}
       </div>
     </Card>
   );
 }
 
-/* ---------- daily_vibe: disabled preview ---------- */
+/* ---------- daily_vibe: horizontal proportional bar, computed live from
+   today's Mood taps (no server round-trip needed to reflect a tap) ---------- */
 
-function DailyVibeCard({ def }: { def: Definition }) {
-  const levels = ["Sometimes", "Often", "Most of the day"];
+function DailyVibeCard({ moodEntries }: { moodEntries: LogEntry[] }) {
+  const counts = moodEntries.reduce<Record<string, number>>((m, e) => {
+    const k = String(e.value);
+    m[k] = (m[k] ?? 0) + 1;
+    return m;
+  }, {});
+  // Directly proportional to raw tap counts — no none/sometimes/often/alot
+  // bucketing here, since that flattened a count of 6 and a count of 2 into
+  // the same bucket. This bar just wants the real ratio.
+  const scores = VIBE_STACK_ORDER.map((label) => counts[label] ?? 0);
+  const total = scores.reduce((a, b) => a + b, 0);
+
   return (
-    <Card className="mt-3 opacity-60">
+    <Card className="mt-3">
       <CardHead
         icon={Smile}
         title="Daily vibe"
-        hint="End-of-day summary with a frequency. Coming soon — collated from your Mood taps."
+        hint="Disabled for direct entry, for now"
       />
-      <div className="pointer-events-none">
-        <div className="grid grid-cols-3 gap-2">
-          {(def.enumOptions ?? []).map((m) => (
-            <div
-              key={m}
-              className="rounded-xl border border-dashed border-[var(--color-line)] px-2 py-3 text-center text-sm text-[var(--color-ink-soft)]"
-            >
-              {m}
-            </div>
-          ))}
-        </div>
-        <div className="mt-2 flex gap-1">
-          {levels.map((l) => (
-            <div
-              key={l}
-              className="flex-1 rounded-md border border-dashed border-[var(--color-line)] py-1 text-center text-[10px] text-[var(--color-ink-soft)]"
-            >
-              {l}
-            </div>
-          ))}
-        </div>
+      <div className="flex h-8 w-full overflow-hidden rounded-lg border border-[var(--color-line)]">
+        {total === 0
+          ? null // transparent, colorless bar until the first tap
+          : VIBE_STACK_ORDER.map((label, i) => {
+              const pct = (scores[i] / total) * 100;
+              if (pct <= 0) return null;
+              return (
+                <div
+                  key={label}
+                  title={`${label}: ${scores[i]}`}
+                  style={{
+                    width: `${pct}%`,
+                    backgroundColor: hexToRgba(VIBE_COLORS[label], VIBE_TINT_ALPHA * 2),
+                  }}
+                />
+              );
+            })}
       </div>
     </Card>
   );

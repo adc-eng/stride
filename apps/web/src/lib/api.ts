@@ -70,10 +70,24 @@ export type Insight = {
 
 export type GenerateParams = { from?: string | null; to?: string | null };
 
+// Demo-only: the generate call also returns the (fake) reasoning prompt built
+// from the range's real computed sketches, so the UI can show what would be
+// sent to the LLM before revealing the resulting insights.
+export type GenerateResult = { prompt: string; insights: Insight[] };
+
 const BASE = "/api";
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
+  const ct = res.headers.get("content-type") ?? "";
+  if (!ct.includes("json")) {
+    // Classic MSW/Vite dev symptom: the mock service worker didn't intercept
+    // this request (often right after a file-triggered full reload), so it
+    // hit the real dev server, which returns index.html for unknown paths.
+    throw new Error(
+      "Mock service worker didn't intercept this request — try a hard refresh (Cmd/Ctrl+Shift+R)."
+    );
+  }
   return res.json() as Promise<T>;
 }
 
@@ -86,7 +100,7 @@ export const api = {
   listLogs: (
     kind: EntityKind,
     id: string,
-    params?: { range?: string; date?: string }
+    params?: { range?: string; date?: string; from?: string; to?: string }
   ) => {
     const q = new URLSearchParams(params as Record<string, string>).toString();
     const base = kind === "input" ? "inputs" : "outcomes";
@@ -114,7 +128,10 @@ export const api = {
   },
 
   // --- union read across a type (GET /logs?type=input&date=...) ---
-  listAllLogs: (kind: EntityKind, params?: { range?: string; date?: string }) => {
+  listAllLogs: (
+    kind: EntityKind,
+    params?: { range?: string; date?: string; from?: string; to?: string }
+  ) => {
     const q = new URLSearchParams({
       type: kind,
       ...(params ?? {}),
@@ -127,13 +144,24 @@ export const api = {
   listInsights: (limit = 10) =>
     fetch(`${BASE}/insights?limit=${limit}`).then(json<Insight[]>),
 
-  // run the (mocked) reasoning over logs in range, persist + return new rows
+  // FAST, local-only: real sketches + the exact prompt/tool-schema that
+  // /generate will send — no LLM call, so this resolves near-instantly and
+  // can be typed into the UI before the slow call even starts.
+  previewPrompt: (params: GenerateParams = {}) =>
+    fetch(`${BASE}/insights/prompt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(params),
+    }).then(json<{ prompt: string; toolSchemaDisplay: string }>),
+
+  // SLOW (real Anthropic call, ~20-35s): runs the reasoning over logs in
+  // range, persists + returns new rows + the same prompt (for compatibility)
   generateInsights: (params: GenerateParams = {}) =>
     fetch(`${BASE}/insights/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(params),
-    }).then(json<Insight[]>),
+    }).then(json<GenerateResult>),
 
   // interactive chat — range-scoped, NOT persisted as insights
   chat: (question: string, params: GenerateParams = {}) =>
